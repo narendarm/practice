@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONF xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	ENV_NAME="lspe1_ss">
+	<JSX>
+		<PRFX Prefix="lspe1_ss"/>
+		<PROV Name="SS_EMBUSSonicProvider"
+			URL="ldap://emlclt01.sbc.com:4299">			
+			<QCFC Name="SBCStatusServiceQCF1" JNDI="jms/SBCStatusServiceQCF1" EJNDI="cn=ls_sssclt1QCF,ou=sss,o=ordering,t=jms,c=us" 
+                  Desc="SBC SS QCF 1  for listener" maxConn="24" />
+		      <QCFC Name="SBCStatusServiceQCF2" JNDI="jms/SBCStatusServiceQCF2" EJNDI="cn=ls_sssclt2QCF,ou=sss,o=ordering,t=jms,c=us" 
+                  Desc="SBC SS QCF 2 for listener" maxConn="24" />
+                  <QCFC Name="SSClientQCF" JNDI="jms/SSClientQCF" EJNDI="cn=ls_ssscltQCF,ou=sss,o=ordering,t=jms,c=us" 
+                  Desc="SBC SS Client QCF" maxConn="100" />
+
+                 <!-- ????why qcf mentioned here Q and Q are unders the provider url isn't -->
+			<DEST Name="GetOSSStatusQ" JNDI="jms/GetOSSStatusQ"
+				EJNDI="cn=ossStatus,ou=sss_int,o=ordering,t=jms,c=us"
+				CF="jms/SBCStatusServiceQCF1" Desc="Desc">
+				<VQCF Name="SBCStatusServiceQCF2"/>
+			</DEST>
+
+                  <DEST Name="SRMResQ" JNDI="jms/SRMResQ" 
+				EJNDI="cn=ossStatusResponse,ou=sss_int,o=ordering,t=jms,c=us"
+				CF="jms/SBCStatusServiceQCF1" Desc="Desc">
+				<VQCF Name="SBCStatusServiceQCF2"/>
+			</DEST>
+
+                 <DEST Name="notifyEtracsQ" JNDI="jms/notifyEtracsQ"
+				EJNDI="cn=etracsNotification,ou=sss_int,o=ordering,t=jms,c=us"
+				CF="jms/SSClientQCF" Desc="Desc">
+			</DEST>
+
+			<DEST Name="notifyGIOMQ" JNDI="jms/notifyGIOMQ"
+				EJNDI="cn=giomNotification,ou=int,o=ordering,t=jms,c=us"
+				CF="jms/SSClientQCF" Desc="Desc">
+			</DEST>
+
+			<DEST Name="notifyOvalsQ" JNDI="jms/notifyOvalsQ"
+				EJNDI="cn=ovalsMessage,ou=sss_int,o=ordering,t=jms,c=us"
+				CF="jms/SSClientQCF" Desc="Desc">
+			</DEST>
+
+                  <DEST Name="notifySOEQ" JNDI="jms/notifySOEQ"
+				EJNDI="cn=soeNotification,ou=int,o=ordering,t=jms,c=us  "
+				CF="jms/SSClientQCF" Desc="Desc">
+			</DEST>
+
+		</PROV>
+			
+
+		<PROV Name="SS_TIBCOProvider"
+			URL="tcp://nrqbpm02.edc.cingular.net:19221,tcp://nrqbpm02.edc.cingular.net:19222">
+                  <!-- initial context factory - com.tibco.tibjms.naming.TibjmsInitialContextFactory -->
+			<QCFC Name="notifyAtlasQCF" JNDI="jms/notifyAtlasQCF" EJNDI="LBFTQueueConnectionFactory"
+				Desc="Tibco atlas QCF" maxConn="10" />
+			<DEST Name="notifyAtlasQ" JNDI="jms/notifyAtlasQ"
+				EJNDI="pub.statusservices.orderstatus.input.async" CF="notifyAtlasQCF"
+				Desc="Desc">
+			</DEST>
+		</PROV>
+				
+            <!--*** Fusion sending *****-->
+		<PROV Name="SS_FUSIONBUSProvider" URL="aftdsc://AFTUAT/38.6/-90.2">
+            <!-- initial context factory -com.att.aft.jms.FusionCtxFactory -->
+			<QCFC Name="SSClientQCF_FUSION" JNDI="jms/SSClientQCF_FUSION" 
+				  EJNDI="aftdsc://AFTUAT/?service=FusionBus,version=2.0,bindingType=fusionBus,envContext=Q" Desc="FUSION Client QCF" maxConn="10" />
+			<DEST Name="ReceiveOMS_OSSQ" JNDI="jms/ReceiveOMS_OSSQ" 
+				  EJNDI="queue:///FUSIONQL.SBCSS.RECEIVEOSS.1.0.S.JU.REQ" CF="jms/SSClientQCF_FUSION" Desc="receiveOSS Q">
+			</DEST>
+			
+		</PROV>
+	</JSX>
+    	
+	<ASP>
+         <!--**** Fusion listener replacement 2 for Test and 4 for prod **-->
+	     <ActivationSpec name="SBCStatusServiceListener1" scope="ss" >
+		   <jndiName>jms/SBCStatusServiceListener1</jndiName>
+           <destinationJndiName>FUSIONQL.SBCSS.RECEIVEOSS.1.0.S.JU.REQ</destinationJndiName>
+           <qmgrName>ESBMBJU1</qmgrName>
+           <qmgrHostname>bos69872.jadc.att.com</qmgrHostname>
+           <qmgrPortNumber>1414</qmgrPortNumber>
+           <qmgrSvrconnChannel>ESBMBJU1_SSL</qmgrSvrconnChannel>
+           <customProperties>
+                <property name="WAS_EndpointInitialState">ACTIVE</property>
+                <property name="useJNDI">false</property>
+                <property name="maxPoolDepth">1</property>
+		   </customProperties>
+		   <advancedProperties>
+                <property name="startTimeout">20000</property>
+                <property name="failureDeliveryCount">10</property>
+   	       </advancedProperties>
+        </ActivationSpec> 
+        
+	<ActivationSpec name="SBCStatusServiceListener2" scope="ss" >
+		   <jndiName>jms/SBCStatusServiceListener2</jndiName>
+           <destinationJndiName>FUSIONQL.SBCSS.RECEIVEOSS.1.0.S.JU.REQ</destinationJndiName>
+           <qmgrName>ESBMBJU2</qmgrName>
+           <qmgrHostname>bos69874.jadc.att.com</qmgrHostname>
+           <qmgrPortNumber>1415</qmgrPortNumber>
+           <qmgrSvrconnChannel>ESBMBJU2_SSL</qmgrSvrconnChannel>
+           <customProperties>
+                <property name="WAS_EndpointInitialState">ACTIVE</property>
+                <property name="useJNDI">false</property>
+                <property name="maxPoolDepth">1</property>
+		   </customProperties>
+		   <advancedProperties>
+                <property name="startTimeout">20000</property>
+                <property name="failureDeliveryCount">10</property>
+   	       </advancedProperties>
+        </ActivationSpec> 
+
+	<ActivationSpec name="SBCStatusServiceListener3" scope="ss" >
+		   <jndiName>jms/SBCStatusServiceListener3</jndiName>
+           <destinationJndiName>FUSIONQL.SBCSS.RECEIVEOSS.1.0.S.JU.REQ</destinationJndiName>
+           <qmgrName>DUMMY</qmgrName>
+           <qmgrHostname>DUMMY</qmgrHostname>
+           <qmgrPortNumber>1234</qmgrPortNumber>
+           <qmgrSvrconnChannel>DUMMY</qmgrSvrconnChannel>
+           <customProperties>
+                <property name="WAS_EndpointInitialState">INACTIVE</property>
+                <property name="useJNDI">false</property>
+                <property name="maxPoolDepth">1</property>
+		   </customProperties>
+		   <advancedProperties>
+                <property name="startTimeout">20000</property>
+                <property name="failureDeliveryCount">10</property>
+   	       </advancedProperties>
+        </ActivationSpec> 
+
+        <ActivationSpec name="SBCStatusServiceListener4" scope="ss" >
+                   <jndiName>jms/SBCStatusServiceListener4</jndiName>
+           <destinationJndiName>FUSIONQL.SBCSS.RECEIVEOSS.1.0.S.JU.REQ</destinationJndiName>
+           <qmgrName>DUMMY</qmgrName>
+           <qmgrHostname>DUMMY</qmgrHostname>
+           <qmgrPortNumber>1234</qmgrPortNumber>
+           <qmgrSvrconnChannel>DUMMY</qmgrSvrconnChannel>
+           <customProperties>
+                <property name="WAS_EndpointInitialState">INACTIVE</property>
+                <property name="useJNDI">false</property>
+                <property name="maxPoolDepth">1</property>
+                   </customProperties>
+                   <advancedProperties>
+                <property name="startTimeout">20000</property>
+                <property name="failureDeliveryCount">10</property>
+               </advancedProperties>
+        </ActivationSpec>
+	
+  </ASP>
+		
+</CONF>
