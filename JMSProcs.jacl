@@ -1,0 +1,705 @@
+################################################################################
+# File       : JmsProcs.jacl
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# description: Contains generic procedures for creating and manipulating JMS
+#            : objects
+#
+#            : Include this in other JACL's using the following:
+#            : source <PATH>/JmsProcs.jacl
+#
+################################################################################
+# CURRENT VERSION: 1.8
+################################################################################
+
+puts "JMSProcs.jacl initializing..."
+set myCellID {}
+set myClusID {}
+set myNodeID {}
+set mySrvrID {}
+set myProvID {}
+
+set cell [$AdminControl getCell]  
+set mgrNode [$AdminControl getNode]
+
+# connection/session pool defaults
+set agedTO 0
+set connTO 180
+set maxConn 10
+set minConn 1
+#mg3593  20081124  - EMBUS Recommendation
+#set pPol FailingConnectionOnly
+set pPol EntirePool  
+set reapTime 180
+set unuTO 1800
+set mapConfAlias DefaultPrincipalMapping
+set authAlias OMS_MechID
+set Password ""
+
+################################################################################
+# proc       : getCellID
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : CellName - Name of the Cell (LSOMS1DEV1)
+# description: Sets the ID for the Cell
+#
+################################################################################
+proc getCellID {CellName} {
+  global AdminConfig myCellID
+  set myCellID [$AdminConfig getid /Cell:$CellName/]
+  if {[llength $myCellID] > 1} {
+    puts "ERROR: getCellID: Cell name ($CellName) matches more than one cell!"
+    } else {
+    if {[llength $myCellID] < 1} {
+      puts "ERROR: getCellID: Cell name ($CellName) does not match any cells!"
+      }
+    }
+  return $myCellID
+  }
+
+################################################################################
+# proc       : getClusID
+# date       : 18 Sept 2008
+# author     : Narendar Murarishetty
+# arguments  : ClusName - Name of the Clus (lspe1_SS)
+# description: Sets the ID for the Cluster
+#
+################################################################################
+proc getClusID {ClusName} {
+  global AdminConfig myClusID
+  set myClusID [$AdminConfig getid /ServerCluster:$ClusName/]
+  if {[llength $myClusID] > 1} {
+    puts "ERROR: getCluseID: Clus name ($ClusName) matches more than one cluster!"
+    } else {
+    if {[llength $myClusID] < 1} {
+      puts "ERROR: getClusID: Clus name ($ClusName) does not match any clusters!"
+      }
+    }
+  return $myClusID
+  }
+
+################################################################################
+
+################################################################################
+# proc       : getNodeID
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : CellName - Name of the Cell (LSOMS1DEV1)
+#            : NodeName - Name of the Node (cidc1709)
+# description: Sets the ID for the Node
+#
+################################################################################
+proc getNodeID {CellName NodeName} {
+  global AdminConfig myNodeID
+  set myNodeID [$AdminConfig getid /Cell:$CellName/Node:$NodeName/]
+  if {[llength $myNodeID] > 1} {
+    puts "ERROR: getNodeID: Node name ($NodeName) matches more than one node!"
+    } else {
+    if {[llength $myNodeID] < 1} {
+      puts "ERROR: getNodeID: Node name ($NodeName) does not match any nodes!"
+      }
+    }
+  return $myNodeID
+  }
+
+################################################################################
+# proc       : getSrvrID
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : CellName - Name of the Cell (LSOMS1DEV1)
+#            : NodeName - Name of the Node (cidc1709)
+#            : SrvrName - Name of the Server (dev1a)
+# description: Sets the ID for the Server
+#
+################################################################################
+proc getSrvrID {CellName NodeName SrvrName} {
+  global AdminConfig mySrvrID
+  set mySrvrID [$AdminConfig getid /Cell:$CellName/Node:$NodeName/Server:$SrvrName/]
+  if {[llength $mySrvrID] > 1} {
+    puts "ERROR: getSrvrID: Server name ($SrvrName) matches more than one server!"
+    } else {
+    if {[llength $mySrvrID] < 1} {
+      puts "ERROR: getSrvrID: Server name ($SrvrName) does not match any servers!"
+      }
+    }
+  return $mySrvrID
+  }
+
+################################################################################
+# proc       : getProvID
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : CellName - Name of the Cell (LSOMS1DEV1)
+#            : NodeName - Name of the Node (cidc1709)
+# description: Sets the ID for the Node
+#
+################################################################################
+proc getProvID {CellName ClusName NodeName SrvrName PrvName} {
+  global AdminConfig myProvID myNodeID
+  # build scope string:
+  set myScope ""
+  if {[string length $CellName] > 0} {append myScope "/Cell:" $CellName}
+  if {[string length $ClusName] > 0} {append myScope "/ServerCluster:" $ClusName}
+  if {[string length $NodeName] > 0} {append myScope "/Node:" $NodeName}
+  if {[string length $SrvrName] > 0} {append myScope "/Server:" $SrvrName}
+  if {[string length $PrvName] > 0} {append myScope "/JMSProvider:" $PrvName "/"} else {puts "ERROR: getProvID: Provider Name must be specified!"}
+  set myProvID [$AdminConfig getid $myScope]
+  if {[llength $myProvID] > 1} {
+    puts "    WARNING: getProvID: Provider name ($PrvName) matches more than one providers!"
+  } else {
+    if {[llength $myProvID] < 1} {
+      puts "    WARNING: getProvID: Provider name ($PrvName) does not match any providers!"
+      }
+    }
+  return $myProvID
+  }
+
+################################################################################
+# proc       : mkProv
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : PrvName - Name of the new JMS Provider (EMBUSProvider)
+#              PrvURL - URL for the provider (ldap://hostname:port
+#              PrvContext - Initial context (com.sun.jndi.ldap.LdapCtxFactory)
+#              PrvClasspath - Classpath (/a/b/entry1;/b/c/entry2)
+#              Parent - Object ID of the parent (cell, node, or server) for the
+#                       new provider.
+# description: Creates a new Generic JMS Provider
+#
+################################################################################
+proc mkProv {PrvName PrvURL PrvContext PrvClasspath PrvCustomProp Parent} {
+  global AdminConfig
+  puts "    INFO: Creating Generic JMS Provider: $PrvName"
+  puts "                           Provider URL: $PrvURL"
+  puts "                        Initial Context: $PrvContext"
+  puts "                              Classpath: $PrvClasspath"
+  puts "											Custom Properties: $PrvCustomProp"
+  puts "                                 Parent: $Parent"
+  set myPrvList [$AdminConfig list JMSProvider $Parent]
+  foreach thisPrv $myPrvList {
+    set thisName [$AdminConfig showAttribute $thisPrv name]
+    if { $thisName == $PrvName && $thisName != "" } {
+      puts "    INFO: Removing provider $PrvName"
+      $AdminConfig remove $thisPrv
+      }
+    }
+  set result [$AdminConfig create JMSProvider $Parent [subst {{classpath $PrvClasspath} {externalInitialContextFactory $PrvContext} {externalProviderURL {$PrvURL}} {name $PrvName} {nativepath {}}}]]
+  puts "    INFO: Created provider $PrvName"
+  #*******************************************************************
+  # Add custom properties to the provider if required
+  # set myPropSet [$AdminConfig create J2EEResourceProperty $result]
+  #*******************************************************************
+  			if { $PrvCustomProp != "" } {
+					
+					puts "    INFO: Provider $PrvName has custom properties"
+					#Creating Property Set
+					set propSet  [$AdminConfig create J2EEResourcePropertySet  $result {}]
+					## Split record into separate properties
+					set records [split $PrvCustomProp "/"]
+					
+					## Iterate over the records
+					foreach rec $records {
+					        puts stdout "$rec"
+					        set fields [split $rec "="]
+					        set leng [llength $fields]
+					        if {$leng == 2} {
+					                set prop [lindex $fields 0]
+					                set val [lindex $fields 1]
+					                puts "    INFO: Custom Property Name: $prop"
+					                puts "    INFO: Custom Property Value: $val"
+					                set name [list name $prop]
+	 	       								set value [list value $val]
+	 	       								set rpAttrs2 [list $name $value ]
+	 	       								$AdminConfig create J2EEResourceProperty $propSet $rpAttrs2
+					        } else {
+					                puts stdout "!!! Invalid Custom Properties String"
+					        }
+					}
+					}
+  #*******************************************************************
+  return $result
+  }
+  
+################################################################################
+# proc       : killProv
+# date       : 27 Feb 2008
+# author     : Dan Fitzpatrick
+# arguments  : PrvName - Name of the new JMS Provider (EMBUSProvider)
+#              Parent - Object ID of the parent (cell, node, or server) for the
+#                       provider being deleted.
+# description: DELETES A JMS Provider
+#
+################################################################################
+proc killProv {PrvName Parent} {
+    global AdminConfig
+    set myPrvList [$AdminConfig list JMSProvider $Parent]
+    foreach thisPrv $myPrvList {
+      set thisName [$AdminConfig showAttribute $thisPrv name]
+      if { $thisName == $PrvName } {
+        puts "    INFO: Removing provider $PrvName"
+        set result [$AdminConfig remove $thisPrv]
+        return $result
+      }
+    }
+}
+
+# foreach prov $myProvList { puts [$AdminConfig showAttribute $prov name] }
+
+################################################################################
+# proc       : getCfList
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : Parent - Obj ID of the JMS Provider
+# description: Returns the list of Connection Factories for the provider
+#
+################################################################################
+proc getCfList {Parent} {
+  #-------------------------------------------------------------------------------
+  # Get details of existing CFs
+  #-------------------------------------------------------------------------------
+  global AdminConfig myNodeID cfLst
+  set cfLst [$AdminConfig list GenericJMSConnectionFactory $Parent]
+  return $cfLst
+  }
+
+################################################################################
+# proc       : mkCf
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : PrvName - Name of the parent JMS Provider (EMBUSProvider)
+#            : CfName - Name of the CF to create (OmsCf)
+#            : JndiName - JNDI Name for the new CF (jms/OmsCf)
+#            : eJndiName - External JNDI name for the new CF
+#            : CfDesc - Description of the new CF
+#            : AuthAlias - Alias for the J2C Authentication data to use
+#            : CfCPool - Connection pool property set (create with mkPool)
+#            : CfSPool - Session pool property set (create with mkPool)
+#            : MapConfAlias - Mapping configuration alias
+# description: Creates a new Connection Factory (CF)
+#
+################################################################################
+proc mkCf {CfName JndiName eJndiName CfDesc AuthAlias CfCPool CfSPool MapConfAlias Parent} {
+  #-------------------------------------------------------------------------------
+  # create Connection Factories
+  # These names are not environment specific
+  #-------------------------------------------------------------------------------
+  global AdminConfig mgrNode
+  set myCfLst [$AdminConfig list GenericJMSConnectionFactory $Parent]
+  foreach thisCf $myCfLst {
+    set thisName [$AdminConfig showAttribute $thisCf name]
+    if { $thisName == $CfName } {
+      puts "         Removing QCF $CfName"
+      $AdminConfig remove $thisCf
+      }
+    }
+  #
+  #  Need to add connectionPool, sessionPool, authDataAlias, and mapping
+  #
+  puts "         INFO: Creating JMS QCF  : $CfName"
+  set authProp [subst {authDataAlias $mgrNode/$AuthAlias}]
+  set mappProp [subst {mapping {{$authProp} {mappingConfigAlias $MapConfAlias}}}]
+  #
+  set myCf [$AdminConfig create GenericJMSConnectionFactory $Parent [subst {{$authProp} {$CfCPool} {externalJNDIName $eJndiName} {jndiName $JndiName} {$mappProp} {name $CfName} {provider $Parent} {$CfSPool} {type QUEUE} {description {$CfDesc}}}]]
+  puts "         INFO: Created JMS QCF   : $myCf"
+  # we may need to do the following...
+  # set myPropSet [$AdminConfig create J2EEResourceProperty $myCf]
+  return $myCf
+  }
+
+################################################################################
+# proc       : mkFusionCf
+# date       : 15 July 2011
+# author     : Yaniv Hershkovich
+# arguments  : PrvName - Name of the parent JMS Provider (EMBUSProvider)
+#            : CfName - Name of the CF to create (OmsCf)
+#            : JndiName - JNDI Name for the new CF (jms/OmsCf)
+#            : eJndiName - External JNDI name for the new CF
+#            : CfDesc - Description of the new CF
+#            : CfCPool - Connection pool property set (create with mkPool)
+#            : CfSPool - Session pool property set (create with mkPool)
+#            : MapConfAlias - Mapping configuration alias
+# description: Creates a new Fusion Bus Connection Factory (CF) without authentication alias
+#
+################################################################################
+proc mkFusionCf {CfName JndiName eJndiName CfDesc CfCPool CfSPool MapConfAlias Parent} {
+  #-------------------------------------------------------------------------------
+  # create Fusion Connection Factories
+  # These names are not environment specific
+  #-------------------------------------------------------------------------------
+  global AdminConfig mgrNode
+  set myCfLst [$AdminConfig list GenericJMSConnectionFactory $Parent]
+  foreach thisCf $myCfLst {
+    set thisName [$AdminConfig showAttribute $thisCf name]
+    if { $thisName == $CfName } {
+      puts "         Removing QCF $CfName"
+      $AdminConfig remove $thisCf
+      }
+    }
+  #
+  #  Need to add connectionPool, sessionPool and mapping
+  #
+  puts "         INFO: Creating JMS QCF  : $CfName"
+  set mappProp [subst {mapping {{mappingConfigAlias $MapConfAlias}}}]
+  #
+  set myCf [$AdminConfig create GenericJMSConnectionFactory $Parent [subst {{$CfCPool} {externalJNDIName $eJndiName} {jndiName $JndiName} {$mappProp} {name $CfName} {provider $Parent} {$CfSPool} {type QUEUE} {description {$CfDesc}}}]]
+  puts "         INFO: Created JMS QCF   : $myCf"
+  # we may need to do the following...
+  # set myPropSet [$AdminConfig create J2EEResourceProperty $myCf]
+  return $myCf
+  }
+  
+################################################################################
+# proc       : mkPool
+# date       : 26 Feb 2008
+# author     : Dan Fitzpatrick
+# arguments  : agedTO
+#            : connTO
+#            : maxConn
+#            : minConn
+#            : pPol
+#            : reapTime
+#            : unuTO
+#            : type
+# description: Creates a list for a connection or session pool property
+################################################################################  
+proc mkPool {agedTO connTO maxConn minConn pPol reapTime unuTO type} {
+  set myPool [subst {${type} {{agedTimeout ${agedTO}} {connectionTimeout ${connTO}} {maxConnections ${maxConn}} {minConnections ${minConn}} {purgePolicy ${pPol}} {reapTime ${reapTime}} {unusedTimeout ${unuTO}}}}]
+  return $myPool
+  }
+
+################################################################################
+# proc       : getAuthData
+# date       : 14 Mar 2008
+# author     : Dan Fitzpatrick
+# arguments  : Alias
+# description: Creates an authentication data entry
+################################################################################  
+proc getAuthData {Alias} {
+  global AdminConfig cell mgrNode Password
+  foreach authEntry [$AdminConfig list JAASAuthData] {
+      set aeAlias [$AdminConfig showAttribute $authEntry alias]
+      if { $aeAlias == "${mgrNode}/${Alias}" || $aeAlias == "${Alias}" } {
+          set result [$AdminConfig showAttribute $authEntry userId]
+          break
+          }
+       }
+  return $result
+}
+
+    
+################################################################################
+# proc       : mkAuthData
+# date       : 26 Feb 2008
+# author     : Dan Fitzpatrick
+# arguments  : Alias
+#            : User
+# description: Creates an authentication data entry
+################################################################################  
+proc mkAuthData {Provider Alias User} {
+  global AdminConfig cell mgrNode Password
+  set sec [$AdminConfig getid /Cell:$cell/Security:/]
+  puts "PROMPT: To create $Provider J2C alias, enter the password for $User (Alias ${mgrNode}/${Alias})"
+  gets stdin Password
+  puts "INFO: Creating $Provider J2C auth alias ${mgrNode}/${Alias}"
+  foreach authEntry [$AdminConfig list JAASAuthData] {
+      if { [$AdminConfig showAttribute $authEntry alias] == "${mgrNode}/${Alias}" } {
+	      puts "INFO: Auth alias ${Alias} for $Provider already exists.  Keeping existing entry."
+	      return $authEntry
+      }
+  }
+  $AdminConfig create JAASAuthData $sec [subst {{alias "${mgrNode}/${Alias}"} {userId $User} {password $Password}}]
+  }
+
+################################################################################
+# proc       : killAuthData
+# date       : 27 Feb 2008
+# author     : Dan Fitzpatrick
+# arguments  : Alias
+# description: Deletes an authentication data entry
+################################################################################  
+proc killAuthData {Provider Alias} {
+  global AdminConfig cell mgrNode
+  set sec [$AdminConfig getid /Cell:$cell/Security:/]
+  puts "INFO: Deleting $Provider J2C auth alias ${mgrNode}/${Alias}"
+  foreach authEntry [$AdminConfig list JAASAuthData] {
+      if { [$AdminConfig showAttribute $authEntry alias] == "${mgrNode}/${Alias}" } {
+	      puts "INFO: $Provider auth alias ${Alias} located.  KILLING."
+	      set result [$AdminConfig remove $authEntry]
+	      return {}
+      }
+  }
+}
+
+################################################################################
+# proc       : ckAuthData
+# date       : 26 Feb 2008
+# author     : Dan Fitzpatrick
+# arguments  : Alias
+# description: Checks for an authentication data entry
+################################################################################  
+proc ckAuthData {Alias} {
+	global AdminConfig mgrNode
+	  foreach authEntry [$AdminConfig list JAASAuthData] {
+		  if { [$AdminConfig showAttribute $authEntry alias] == "${mgrNode}/${Alias}" } {
+			  return $authEntry
+		  }
+	  }
+	  return {}
+  }
+
+################################################################################
+# proc       : getDstList
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : Parent - Obj ID of the JMS Provider
+# description: Returns the list of Queue Destinations for the provider
+#
+################################################################################
+proc getDstList {Parent} {
+  #-------------------------------------------------------------------------------
+  # Get details of existing Destinations
+  #-------------------------------------------------------------------------------
+  global AdminConfig
+  set dstLst [$AdminConfig list GenericJMSDestination Parent]
+  return $dstLst
+  }
+  
+################################################################################
+# proc       : mkDst
+# date       : 18 Sept 2008
+# author     : Dan Fitzpatrick
+# arguments  : PrvName - Name of the parent JMS Provider (EMBUSProvider)
+#            : CfName - Name of the Destination to create (OmsDst)
+#            : JndiName - JNDI Name for the new Destination (jms/OmsDst)
+#            : eJndiName - External JNDI name for the new Destination
+#            : DstDesc - Description of the new Destination
+# description: Creates a new JMS Queue Destination
+#
+################################################################################
+proc mkDst {DstName JndiName eJndiName DstDesc Parent} {
+  #-------------------------------------------------------------------------------
+  # create JMS destinations
+  # Names are environment-specific
+  #-------------------------------------------------------------------------------
+  global AdminConfig
+  set myDstLst [$AdminConfig list GenericJMSDestination $Parent]
+  foreach thisDst $myDstLst {
+    set thisName [$AdminConfig showAttribute $thisDst name]
+    if { $thisName == $DstName } {
+      puts "Removing Destination ($DstName)"
+      $AdminConfig remove $thisDst
+      }
+    }
+  puts "         INFO: Creating JMS Queue: $DstName"
+  set myDst [$AdminConfig create GenericJMSDestination $Parent [subst {{externalJNDIName $eJndiName} {jndiName $JndiName} {name $DstName} {provider $Parent} {type QUEUE} {description {$DstDesc}}}]]
+  puts "         INFO: Created JMS Queue : $myDst"
+  # we may need to do the following...
+  # set myPropSet [$AdminConfig create J2EEResourceProperty $myDst]
+  return $myDst
+  }
+################################################################################
+# proc       : createActiveSpec
+# date       : 12 Aug 2011
+# author     : Dharma Raju Maganti
+# description: Create WMQ Activation Specifications 
+#
+################################################################################
+proc createActiveSpec {scopeID inputArgs custProps} {
+    #puts "Creating the Node $scopeID -- $inputArgs"
+    global AdminTask asp
+    global AdminConfig config
+	  set asp [$AdminTask createWMQActivationSpec $scopeID $inputArgs]
+	  # Updating the Custom Properties
+	  set tsp [$AdminTask modifyWMQActivationSpec $asp  $custProps]
+
+ }
+ proc updateActiveSpec {asp scopeID inputArgs custProps} {
+ #puts "Creating the Node $scopeID -- $inputArgs"
+    global AdminTask asps
+    global AdminConfig config
+	  #set asp [$AdminTask createWMQActivationSpec $scopeID $inputArgs]
+	  # Updating the Custom Properties
+	 #puts "Value 1 : $inputArgs"
+	 #puts "Value 2 : $custProps"
+	  set tsp [$AdminTask modifyWMQActivationSpec $asp  $inputArgs]
+	 #puts "$tsp"
+	  set tsp1 [$AdminTask modifyWMQActivationSpec $asp  $custProps]
+	 #puts "$tsp1"
+ }
+ proc createupdateActiveSpec {name scopeID inputArgs custProps} {
+    #puts "1"
+    set asp [ getActiveSpec $name $scopeID ]
+    #puts "Asp :$asp"
+    set i [string length $asp]
+    #puts "1>$asp$i"
+    if {[ set i [string length $asp]]>1} {
+    #puts "2"
+     updateActiveSpec $asp $scopeID $inputArgs $custProps
+    puts "Description : Activation Specifcation $name  Found :  Updating...."
+     } else {
+        puts "Description : Creating...."
+        createActiveSpec $scopeID $inputArgs $custProps
+    }
+    
+#puts "1"
+ }
+ proc getActiveSpec {name scopeID} {
+    global AdminTask asp
+    global AdminConfig config
+    #puts "Name : -$name-"
+ set aspList [ $AdminTask listWMQActivationSpecs $scopeID ]
+ 	  foreach aspValue $aspList {
+ 	 #puts "::::::::: $aspValue"
+ 	  if {[set i [string first $name $aspValue ]]>=0} {
+ 	 #puts "Found .>>>>>>>>> : $name"
+ 	 #puts "-----"
+ 	  return $aspValue
+ 	  }
+ 	  }
+ return "N"
+ }
+################################################################################
+# proc       : deleteActiveSpec
+# date       : 12 Aug 2011
+# author     : Dharma Raju Maganti
+# description: Deleting WMQ Activation Specifications 
+#
+################################################################################
+proc deleteActiveSpec {scopeID name} {
+    #puts "Deleting the Node Starting........"
+    global AdminTask asp
+    global AdminConfig config
+    #puts "1"
+    set activSpecs [$AdminTask listWMQActivationSpecs $scopeID ]
+    #puts "Name : >> $name \n"
+    if {$activSpecs != {}} {
+    #puts "$activSpecs"
+	  set activeSecsList [split $activSpecs "\n" ]
+	 # puts "$activeSecsList"
+	  foreach activeSecsValue $activeSecsList {
+	  	#puts ">>> $activeSecsValue\n"
+	  	set lone [ split $activeSecsValue "(" ]
+	  	foreach loneList $lone {			
+				    if {[set i [string equal $name $loneList ]]==1} 	    	{
+					    		#puts "Found : $loneList"
+					    	$AdminTask deleteWMQActivationSpec $activeSecsValue
+					    	}
+					    }
+	  }
+    }
+	  #set asp [$AdminTask delete WMQActivationSpec $scopeID $name]
+
+
+ }
+################################################################################
+# proc       : getSSLConfigs
+# date       : 12 Aug 2011
+# updated    : 23 Nov 2011
+# author     : Dharma Raju Maganti
+# description: getting SSL Configarations 
+#
+################################################################################
+proc getSSLConfigs {configName scope} {
+	global AdminTask asp
+    global AdminConfig config
+    #puts ">>>>>>>>>>>>>>> $scope"
+	#set listConfigs [ split [$AdminTask listSSLConfigs { -scopeName (cell):"$scope" }] "\n" ]
+set listConfigs [ split [$AdminTask listSSLConfigs ] "\n" ]
+	foreach listConfig $listConfigs {
+	     #puts "Searching for $listConfig"
+	     set lone [ split $listConfig " " ]
+	     foreach loneList $lone {
+	     	                 if {[set i [string equal $configName $loneList ]]==1} {
+	     	                 	puts "Found : $configName"	
+		   										return ;
+	     	                 }
+	     }
+	}
+	puts "ERROR : SSL Configuration $configName Not Found."
+	puts "Script Terminated :"
+	exit ;
+	
+}
+proc getFusionBusCert {FustionBusChain} {
+#puts "*********************************************"
+foreach listConfig $FustionBusChain {
+	     #puts "Seahing for $listConfig"
+		   #puts "Found ----------- >: $listConfig" 
+		   	foreach cert $listConfig {
+		   	set flag "false";
+		   		#puts ">>>>> : $cert"
+		   		set isTo [ split $cert " " ]
+		   		foreach cet $cert {
+		   		 # puts "Flag : $flag"
+		   			if {[set j [string first $flag "true" ]]>=0} {
+		   			#puts "issuedTo : $cet"
+		   			set mainCert [ split $cet "," ]
+		   			set cflag "false"
+		   			foreach mcet $mainCert {
+		   			#puts "Flag : $cflag"
+		   			#puts "$mcet"
+		   			set subCert [ split $mcet "=" ]
+		   			foreach scet $subCert {
+		   			set acet [string trim $scet]
+		   			#puts "Sub : -$acet-"
+		   			if {[set j [string first $cflag "true" ]]>=0} {
+		   			#puts "Final : $acet"
+		   			return $acet
+		   			}
+		   			if {[string first $acet "OU" ]>=0} {
+		   			#puts "Found : >>>>$acet"
+		   			set cflag "true"
+		   			}
+		   			}
+		   			
+		   			}
+		   			}
+		   		#puts "                    ::::::::::::::: $cet "
+		   			if {[set i [string first $cet "issuedTo" ]]>=0} {
+		        #puts "Found >>>>>>>>>: $cet"	
+		        set flag "true"
+		        }
+		   		}
+		   	}
+
+	}		   
+	#puts "*********************************************"
+}
+proc compareCert {queueValue queueName} {
+#puts "-$queueName-"
+set outQ [string index $queueName [expr [ string length $queueName ]-8]]
+puts "Cert OU : [ string toupper $queueValue ]  = Destination Queue : $outQ"
+#puts $outQ55
+}
+################################################################################
+# proc       : syncAll
+# date       : 25 Feb 2008
+# author     : Dan Fitzpatrick
+# description: Force sync of all nodes
+#
+################################################################################
+proc syncAll {} {
+  global AdminControl
+  if {[catch {$AdminControl queryNames type=NodeSync,*} result]} {
+    puts stdout "\$AdminControl queryNames type=NodeSync,* caught an exception $result"
+    } else {
+    if {$result != {}} {
+      foreach nsID $result {
+        set syncResult false
+        while {$syncResult != "true"} {
+          puts stdout "Force node syncronization on $nsID"
+          if {[catch {$AdminControl invoke $nsID sync ""} syncResult]} {
+            puts stdout "\$AdminControl invoke $nsID sync \"\" caught an exception $syncResult"
+            return
+          } else {
+            puts stdout "Sync Result for $nsID is $syncResult"
+          }
+        }
+      }
+    # wait for 1 minute to make sure sync completes
+    puts stdout "Waiting 1 minute to make sure sync is done" 
+    after 60000
+    }
+  } 
+}
+
