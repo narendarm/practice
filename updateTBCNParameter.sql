@@ -1,0 +1,1 @@
+update tbcn_parameter set obtain_value = replace(obtain_value, substr(obtain_value, 0, instr(obtain_value, 'Connector',1,1) - 1), 'file:/appl/OMS/prd1/') where obtain_value like '%.wsdl';
